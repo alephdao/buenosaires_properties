@@ -1,0 +1,1 @@
+0 9 * * * /Users/philip.galebach/coding-projects/webscraping/buenosaires_properties/run_all_programs.py >> /Users/philip.galebach/coding-projects/webscraping/buenosaires_properties/cron.log 2>&1
