@@ -126,6 +126,7 @@ cron.log
 listings_clean.csv
 argenprop_listings.csv
 zonaprop_listings.csv
+argenprop_progress.json
 
 # Temporary files
 *.tmp

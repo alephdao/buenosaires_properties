@@ -5,7 +5,8 @@
     #data is processed in a subsequent cleaning code
 
 import random
-from requests_html import HTMLSession
+from selenium import webdriver
+from selenium.webdriver.chrome.options import Options
 from bs4 import BeautifulSoup
 import re
 import csv
@@ -13,8 +14,9 @@ import time
 import os
 from datetime import datetime
 
-# Define the CSV file path
-csv_file_path = '/Users/philip.galebach/coding-projects/webscraping/buenosaires_properties/argenprop/argenprop_listings.csv'
+# Define the CSV file path relative to script location
+script_dir = os.path.dirname(os.path.abspath(__file__))
+csv_file_path = os.path.join(script_dir, 'argenprop_listings.csv')
 # if os.path.exists(csv_file_path):
 #     os.remove(csv_file_path)
 
@@ -35,12 +37,20 @@ patterns = {
     'bathrooms': r'(\d+)\s*baños'
 }
 
-s = HTMLSession()
+# Configure Chrome options
+chrome_options = Options()
+chrome_options.add_argument('--headless')
+chrome_options.add_argument('--no-sandbox')
+chrome_options.add_argument('--disable-dev-shm-usage')
+chrome_options.add_argument('--disable-gpu')
 
 def getdata(url):
-    r = s.get(url)
-    r.html.render(sleep=1)  # Make sure your environment supports JS rendering
-    soup = BeautifulSoup(r.html.html, 'html.parser')
+    driver = webdriver.Chrome(options=chrome_options)
+    driver.get(url)
+    time.sleep(1)  # Wait for page to load
+    page_source = driver.page_source
+    driver.quit()
+    soup = BeautifulSoup(page_source, 'html.parser')
     return soup
 
 def getnextpage(soup):

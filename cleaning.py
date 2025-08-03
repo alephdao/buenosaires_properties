@@ -7,9 +7,9 @@ import time
 
 dollarblue = 1200  #PJG update to the current rate. 
 
-output_file_path = '/Users/philip.galebach/coding-projects/webscraping/buenosaires_properties/listings_clean.csv'
+output_file_path = '/Users/philipgalebach/coding-projects/buenosaires_properties/listings_clean.csv'
 
-df = pd.read_csv('/Users/philip.galebach/coding-projects/webscraping/buenosaires_properties/argenprop/argenprop_listings.csv')
+df = pd.read_csv('/Users/philipgalebach/coding-projects/buenosaires_properties/argenprop/argenprop_listings.csv')
 
 df['address'] = df['address'].str.split(',', n=1).str[0] + ', CABA, Argentina'
 df['timestamp'] = pd.to_datetime(df['timestamp'], errors='coerce')
