@@ -7,11 +7,18 @@ from selenium.common.exceptions import WebDriverException, TimeoutException
 from bs4 import BeautifulSoup
 import re
 import csv
-import time  
+import time
 import os
 from datetime import datetime
 import json
 import logging
+import sys
+import argparse
+import yaml
+
+# Add parent directory to path for db import
+sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
+import db
 
 # Set up logging
 logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(levelname)s - %(message)s')
@@ -19,14 +26,12 @@ logger = logging.getLogger(__name__)
 
 # Define file paths relative to script location
 script_dir = os.path.dirname(os.path.abspath(__file__))
-csv_file_path = os.path.join(script_dir, 'argenprop_listings.csv')
+parent_dir = os.path.dirname(script_dir)
 progress_file_path = os.path.join(script_dir, 'argenprop_progress.json')
+queries_file_path = os.path.join(parent_dir, 'queries.yaml')
 
 website = 'argenprop'
 base_url = 'https://www.argenprop.com'
-
-# Define the fieldnames for the CSV
-fieldnames = ['address','currency', 'price', 'expenses', 'size', 'bedrooms', 'bathrooms', 'listing_url', 'website', 'url', 'description', 'timestamp']
 
 # Define patterns to search for the needed information
 patterns = {
@@ -47,11 +52,22 @@ chrome_options.add_argument('--disable-blink-features=AutomationControlled')
 chrome_options.add_experimental_option("excludeSwitches", ["enable-automation"])
 chrome_options.add_experimental_option('useAutomationExtension', False)
 
-def save_progress(page_num, url):
+def load_queries():
+    """Load queries from YAML config file"""
+    with open(queries_file_path, 'r') as f:
+        config = yaml.safe_load(f)
+    return config.get('queries', [])
+
+def build_query_url(neighborhoods, bedrooms):
+    """Build the search URL from neighborhoods and bedrooms"""
+    return f"{base_url}/inmuebles/alquiler/{neighborhoods}/{bedrooms}?pagina-1"
+
+def save_progress(page_num, url, query_id):
     """Save current progress to a JSON file"""
     progress = {
         'last_page': page_num,
         'last_url': url,
+        'query_id': query_id,
         'timestamp': datetime.now().isoformat()
     }
     with open(progress_file_path, 'w') as f:
@@ -146,23 +162,63 @@ def parse_listing(listing, url):
     return listing_data
 
 def main():
+    # Parse command line arguments
+    parser = argparse.ArgumentParser(description='ArgentProp scraper with SQLite storage')
+    parser.add_argument('--query', type=str, default=None, help='Query name from queries.yaml')
+    parser.add_argument('--max-pages', type=int, default=None, help='Maximum pages to scrape (for testing)')
+    args = parser.parse_args()
+
+    # Initialize database
+    db.init_database()
+
+    # Load queries from config
+    queries = load_queries()
+    if not queries:
+        logger.error("No queries found in queries.yaml")
+        return
+
+    # Select query
+    if args.query:
+        selected_query = next((q for q in queries if q['name'] == args.query), None)
+        if not selected_query:
+            logger.error(f"Query '{args.query}' not found in queries.yaml")
+            logger.info(f"Available queries: {[q['name'] for q in queries]}")
+            return
+    else:
+        # Use first query as default
+        selected_query = queries[0]
+
+    logger.info(f"Using query: {selected_query['name']}")
+
+    # Get or create query in database
+    query_record = db.get_query_by_name(selected_query['name'])
+    if query_record:
+        query_id = query_record['id']
+        logger.info(f"Found existing query with ID {query_id}")
+    else:
+        query_url = build_query_url(selected_query['neighborhoods'], selected_query['bedrooms'])
+        query_id = db.add_query(
+            name=selected_query['name'],
+            url=query_url,
+            neighborhoods=selected_query['neighborhoods'],
+            bedrooms=selected_query['bedrooms']
+        )
+
     # Load progress or start fresh
     progress = load_progress()
-    
-    if progress and os.path.exists(csv_file_path):
+
+    if progress and progress.get('query_id') == query_id:
         # Resume from last URL
         url = progress['last_url']
         page_num = progress['last_page']
         logger.info(f"Resuming from page {page_num}: {url}")
     else:
         # Start fresh
-        url = base_url + '/inmuebles/alquiler/belgrano-o-br-norte-o-palermo/3-dormitorios-o-4-dormitorios-o-5-o-mas-dormitorios?pagina-1'
+        url = build_query_url(selected_query['neighborhoods'], selected_query['bedrooms'])
         page_num = 1
         logger.info("Starting fresh scraping session")
-        
-        # Clear existing files if starting fresh
-        if os.path.exists(csv_file_path):
-            os.remove(csv_file_path)
+
+        # Clear progress file if starting fresh
         if os.path.exists(progress_file_path):
             os.remove(progress_file_path)
     
@@ -180,45 +236,76 @@ def main():
                 
                 logger.info(f"Found {len(listings)} listings on page {page_num}")
                 
+                new_count = 0
+                updated_count = 0
+
                 for listing in listings:
                     try:
                         listing_data = parse_listing(listing, url)
-                        apartment_listings.append(listing_data)
+
+                        # Convert string numbers to proper types
+                        if listing_data.get('expenses') != 'N/A':
+                            listing_data['expenses'] = float(listing_data['expenses'])
+                        else:
+                            listing_data['expenses'] = 0
+
+                        if listing_data.get('size') != 'N/A':
+                            listing_data['size'] = float(listing_data['size'])
+                        else:
+                            listing_data['size'] = None
+
+                        if listing_data.get('bedrooms') != 'N/A':
+                            listing_data['bedrooms'] = int(listing_data['bedrooms'])
+                        else:
+                            listing_data['bedrooms'] = None
+
+                        if listing_data.get('bathrooms') != 'N/A':
+                            listing_data['bathrooms'] = int(listing_data['bathrooms'])
+                        else:
+                            listing_data['bathrooms'] = None
+
+                        # Upsert to database
+                        is_new, prop_id = db.upsert_property(listing_data, query_id)
+                        if is_new:
+                            new_count += 1
+                        else:
+                            updated_count += 1
+
                     except Exception as e:
-                        logger.error(f"Error parsing listing: {e}")
+                        logger.error(f"Error processing listing: {e}")
                         continue
-                
-                # Write to CSV
-                with open(csv_file_path, mode='a', newline='', encoding='utf-8') as file:
-                    writer = csv.DictWriter(file, fieldnames=fieldnames)
-                    if file.tell() == 0:
-                        writer.writeheader()
-                    for listing in apartment_listings:
-                        writer.writerow(listing)
-                
-                total_listings += len(apartment_listings)
-                logger.info(f"Page {page_num} complete. Total listings so far: {total_listings}")
-                
+
+                total_listings += new_count
+                logger.info(f"Page {page_num} complete. New: {new_count}, Updated: {updated_count}, Total new so far: {total_listings}")
+
                 # Save progress after each successful page
-                save_progress(page_num, url)
+                save_progress(page_num, url, query_id)
+
+                # Update query last_run
+                db.update_query_last_run(query_id)
                 
                 # Random delay between pages
                 sleep_duration = random.uniform(1, 3)
                 time.sleep(sleep_duration)
                 
+                # Check if we've reached max pages (for testing)
+                if args.max_pages and page_num >= args.max_pages:
+                    logger.info(f"Reached max pages limit ({args.max_pages}). Stopping.")
+                    break
+
                 # Get next page
                 next_page_url = getnextpage(data)
                 if not next_page_url:
                     logger.info("No more pages found. Scraping complete!")
                     break
-                
+
                 url = next_page_url
                 page_num += 1
                 
             except Exception as e:
                 logger.error(f"Error processing page {page_num}: {e}")
                 logger.info("Saving progress before exiting...")
-                save_progress(page_num, url)
+                save_progress(page_num, url, query_id)
                 raise
     
     finally:

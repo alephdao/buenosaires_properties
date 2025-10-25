@@ -1,0 +1,33 @@
+# Query configuration for ArgentProp scraper
+# Each query defines a search to run on the website
+#
+# URL pattern: /inmuebles/alquiler/{neighborhoods}/{bedrooms}?pagina-1
+# - Use 'o' to separate options (OR logic)
+# - Common neighborhoods: belgrano, palermo, br-norte (Barrio Norte), recoleta, nunez
+# - Bedroom options: 1-dormitorio, 2-dormitorios, 3-dormitorios, 4-dormitorios, 5-o-mas-dormitorios
+# - Ambiente options: 3-ambientes, 4-o-mas-ambientes
+
+queries:
+  - name: "3-4br Belgrano/Palermo/Barrio Norte"
+    neighborhoods: "belgrano-o-br-norte-o-palermo"
+    bedrooms: "3-dormitorios-o-4-dormitorios-o-5-o-mas-dormitorios"
+    # This is the current/default query
+
+  - name: "2+br or 3+amb Belgrano/Palermo/Barrio Norte"
+    neighborhoods: "belgrano-o-br-norte-o-palermo"
+    bedrooms: "2-dormitorios-o-3-dormitorios-o-4-dormitorios-o-5-o-mas-dormitorios-o-3-ambientes-o-4-o-mas-ambientes"
+    # 2+ bedrooms OR 3+ ambientes in same neighborhoods
+
+  # Example: Add more queries below
+  # - name: "2br Recoleta/Palermo"
+  #   neighborhoods: "recoleta-o-palermo"
+  #   bedrooms: "2-dormitorios"
+
+  # - name: "Large apartments Nunez"
+  #   neighborhoods: "nunez"
+  #   bedrooms: "3-dormitorios-o-4-dormitorios-o-5-o-mas-dormitorios"
+
+# To add a new query:
+# 1. Add it to this file with a unique name
+# 2. Run: python argenprop/argenprop_improved.py --query "your query name"
+# 3. Or edit run_all_programs.py to run multiple queries in sequence
