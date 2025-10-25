@@ -14,6 +14,9 @@ logger = logging.getLogger(__name__)
 # Database path
 DB_PATH = os.path.join(os.path.dirname(os.path.abspath(__file__)), 'properties.db')
 
+# Exchange rate for price normalization
+PESO_TO_USD = 1500
+
 
 def get_connection():
     """Get a database connection."""
@@ -47,6 +50,7 @@ def init_database():
             address TEXT UNIQUE NOT NULL,
             currency TEXT,
             price REAL,
+            price_dollars INTEGER,
             expenses REAL,
             size REAL,
             bedrooms INTEGER,
@@ -120,6 +124,17 @@ def update_query_last_run(query_id: int):
     conn.close()
 
 
+def calculate_price_dollars(currency: str, price: float) -> Optional[int]:
+    """Calculate normalized price in USD, rounded to nearest dollar."""
+    if not price:
+        return None
+
+    if currency == '$':  # Pesos
+        return round(price / PESO_TO_USD)
+    else:  # USD
+        return round(price)
+
+
 def upsert_property(property_data: Dict, query_id: int) -> tuple[bool, int]:
     """
     Insert or update a property. Uses address as unique key.
@@ -141,10 +156,17 @@ def upsert_property(property_data: Dict, query_id: int) -> tuple[bool, int]:
         property_id = existing['id']
         original_timestamp = existing['timestamp']
 
+        # Calculate price_dollars
+        price_dollars = calculate_price_dollars(
+            property_data.get('currency'),
+            property_data.get('price')
+        )
+
         cursor.execute('''
             UPDATE properties SET
                 currency = ?,
                 price = ?,
+                price_dollars = ?,
                 expenses = ?,
                 size = ?,
                 bedrooms = ?,
@@ -159,6 +181,7 @@ def upsert_property(property_data: Dict, query_id: int) -> tuple[bool, int]:
         ''', (
             property_data.get('currency'),
             property_data.get('price'),
+            price_dollars,
             property_data.get('expenses'),
             property_data.get('size'),
             property_data.get('bedrooms'),
@@ -179,15 +202,22 @@ def upsert_property(property_data: Dict, query_id: int) -> tuple[bool, int]:
         if isinstance(timestamp, str):
             timestamp = datetime.fromisoformat(timestamp)
 
+        # Calculate price_dollars
+        price_dollars = calculate_price_dollars(
+            property_data.get('currency'),
+            property_data.get('price')
+        )
+
         cursor.execute('''
             INSERT INTO properties (
-                address, currency, price, expenses, size, bedrooms, bathrooms,
+                address, currency, price, price_dollars, expenses, size, bedrooms, bathrooms,
                 listing_url, website, url, description, timestamp, last_updated, query_id
-            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
         ''', (
             address,
             property_data.get('currency'),
             property_data.get('price'),
+            price_dollars,
             property_data.get('expenses'),
             property_data.get('size'),
             property_data.get('bedrooms'),
