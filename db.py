@@ -34,7 +34,9 @@ def init_database():
     cursor.execute('''
         CREATE TABLE IF NOT EXISTS queries (
             id INTEGER PRIMARY KEY AUTOINCREMENT,
+            query_number INTEGER UNIQUE,
             name TEXT NOT NULL,
+            map_name TEXT,
             url TEXT NOT NULL,
             neighborhoods TEXT,
             bedrooms TEXT,
@@ -79,21 +81,21 @@ def init_database():
     logger.info("Database initialized successfully")
 
 
-def add_query(name: str, url: str, neighborhoods: str = None, bedrooms: str = None) -> int:
+def add_query(name: str, url: str, neighborhoods: str = None, bedrooms: str = None, query_number: int = None, map_name: str = None) -> int:
     """Add a new query to the database."""
     conn = get_connection()
     cursor = conn.cursor()
 
     cursor.execute('''
-        INSERT INTO queries (name, url, neighborhoods, bedrooms)
-        VALUES (?, ?, ?, ?)
-    ''', (name, url, neighborhoods, bedrooms))
+        INSERT INTO queries (query_number, name, map_name, url, neighborhoods, bedrooms)
+        VALUES (?, ?, ?, ?, ?, ?)
+    ''', (query_number, name, map_name, url, neighborhoods, bedrooms))
 
     query_id = cursor.lastrowid
     conn.commit()
     conn.close()
 
-    logger.info(f"Added query '{name}' with ID {query_id}")
+    logger.info(f"Added query '{name}' with ID {query_id} (query_number: {query_number})")
     return query_id
 
 

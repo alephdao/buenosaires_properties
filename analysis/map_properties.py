@@ -165,7 +165,7 @@ def format_price(price):
     else:
         return f"${price:.0f}"
 
-def create_map(df, bedrooms, query_id=None):
+def create_map(df, bedrooms, query_id=None, map_name=None):
     """Create folium map with properties"""
     # Filter out properties without coordinates
     df_mapped = df.dropna(subset=['latitude', 'longitude', 'price_dollars'])
@@ -248,8 +248,10 @@ def create_map(df, bedrooms, query_id=None):
     '''
     m.get_root().html.add_child(folium.Element(legend_html))
 
-    # Save map with query ID if provided
-    if query_id:
+    # Save map with custom name if provided, otherwise use query_id or default
+    if map_name:
+        output_file = f'{OUTPUT_DIR}/{map_name}.html'
+    elif query_id:
         output_file = f'{OUTPUT_DIR}/buenos_aires_{bedrooms}bed_query{query_id}_map.html'
     else:
         output_file = f'{OUTPUT_DIR}/buenos_aires_{bedrooms}bed_map.html'
@@ -258,7 +260,7 @@ def create_map(df, bedrooms, query_id=None):
 
     return df_mapped, output_file
 
-def main(bedrooms=2, use_cache_only=False, query_id=None):
+def main(bedrooms=2, use_cache_only=False, query_id=None, map_name=None):
     """Main function to create property map"""
     # Load data from database
     print(f"Loading {bedrooms}+ bedroom properties from database...")
@@ -292,7 +294,7 @@ def main(bedrooms=2, use_cache_only=False, query_id=None):
     df = geocode_addresses(df, use_cache_only=use_cache_only)
 
     # Create map
-    df_mapped, output_file = create_map(df, bedrooms, query_id)
+    df_mapped, output_file = create_map(df, bedrooms, query_id, map_name)
 
     # Print summary statistics
     print("\n=== Summary Statistics ===")
@@ -312,14 +314,18 @@ if __name__ == "__main__":
 
     # Extract query_id if provided (format: --query-id=N)
     query_id = None
+    map_name = None
     for arg in sys.argv:
         if arg.startswith('--query-id='):
             query_id = int(arg.split('=')[1])
-            break
+        elif arg.startswith('--map-name='):
+            map_name = arg.split('=')[1]
 
     print(f"=== Buenos Aires Property Mapper ===")
     print(f"Analyzing {bedrooms}-bedroom properties\n")
+    if map_name:
+        print(f"Map will be saved as: {map_name}.html\n")
 
-    output = main(bedrooms, use_cache_only=use_cache_only, query_id=query_id)
+    output = main(bedrooms, use_cache_only=use_cache_only, query_id=query_id, map_name=map_name)
 
     print(f"\n✅ Done! Open the map at: {output}")

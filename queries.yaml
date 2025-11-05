@@ -8,12 +8,16 @@
 # - Ambiente options: 3-ambientes, 4-o-mas-ambientes
 
 queries:
-  - name: "3-4br Belgrano/Palermo/Barrio Norte"
+  - query_number: 1
+    name: "3-4br Belgrano/Palermo/Barrio Norte"
+    map_name: "buenos_aires_palermo_belgrano_norte_3plusbed_map"
     neighborhoods: "belgrano-o-br-norte-o-palermo"
     bedrooms: "3-dormitorios-o-4-dormitorios-o-5-o-mas-dormitorios"
     # This is the current/default query
 
-  - name: "2+br or 3+amb Belgrano/Palermo/Barrio Norte"
+  - query_number: 2
+    name: "2+br or 3+amb Belgrano/Palermo/Barrio Norte"
+    map_name: "buenos_aires_palermo_belgrano_norte_2bed_map"
     neighborhoods: "belgrano-o-br-norte-o-palermo"
     bedrooms: "2-dormitorios-o-3-dormitorios-o-4-dormitorios-o-5-o-mas-dormitorios-o-3-ambientes-o-4-o-mas-ambientes"
     # 2+ bedrooms OR 3+ ambientes in same neighborhoods

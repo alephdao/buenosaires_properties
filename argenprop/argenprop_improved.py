@@ -195,14 +195,20 @@ def main():
     query_record = db.get_query_by_name(selected_query['name'])
     if query_record:
         query_id = query_record['id']
-        logger.info(f"Found existing query with ID {query_id}")
+        query_number = query_record.get('query_number')
+        map_name = query_record.get('map_name')
+        logger.info(f"Found existing query with ID {query_id} (query_number: {query_number})")
     else:
         query_url = build_query_url(selected_query['neighborhoods'], selected_query['bedrooms'])
+        query_number = selected_query.get('query_number')
+        map_name = selected_query.get('map_name')
         query_id = db.add_query(
             name=selected_query['name'],
             url=query_url,
             neighborhoods=selected_query['neighborhoods'],
-            bedrooms=selected_query['bedrooms']
+            bedrooms=selected_query['bedrooms'],
+            query_number=query_number,
+            map_name=map_name
         )
 
     # Load progress or start fresh
@@ -356,10 +362,15 @@ def main():
             logger.info(f"Scraped {total_listings} new properties - will geocode new addresses" if total_listings > 0 else "No new properties - using cache only")
             map_script = os.path.join(parent_dir, 'analysis', 'map_properties.py')
 
+            # Pass query_id and map_name to the map script
+            map_name_arg = f"--map-name={map_name}" if map_name else ""
+            cmd = [sys.executable, map_script, str(bedroom_count), f"--query-id={query_id}"]
+            if map_name_arg:
+                cmd.append(map_name_arg)
             if cache_flag:
-                subprocess.run([sys.executable, map_script, str(bedroom_count), f"--query-id={query_id}", cache_flag], check=True)
-            else:
-                subprocess.run([sys.executable, map_script, str(bedroom_count), f"--query-id={query_id}"], check=True)
+                cmd.append(cache_flag)
+
+            subprocess.run(cmd, check=True)
 
             logger.info("✓ Map generation complete")
         except Exception as e:
