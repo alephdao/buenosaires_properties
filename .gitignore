@@ -120,12 +120,13 @@ Temporary Items
 cron.log
 
 # Data files - these are generated and can be large
-*.csv
 *.xlsx
-*.json
-listings_clean.csv
-argenprop_listings.csv
-zonaprop_listings.csv
+# Keep CSV and JSON files tracked for data persistence
+# *.csv
+# *.json
+# listings_clean.csv
+# argenprop_listings.csv
+# zonaprop_listings.csv
 argenprop_progress.json
 
 # Temporary files
