@@ -327,8 +327,35 @@ def main():
         if os.path.exists(progress_file_path):
             os.remove(progress_file_path)
             logger.info("Progress file removed after successful completion")
-        
+
         logger.info(f"Scraping finished. Total listings collected: {total_listings}")
+
+        # Fix failed geocoding and generate updated map
+        try:
+            import subprocess
+
+            # First, fix failed geocoding
+            logger.info("\n=== Fixing geocoding for failed addresses ===")
+            fix_script = os.path.join(parent_dir, 'analysis', 'fix_geocoding.py')
+            subprocess.run([sys.executable, fix_script], check=True)
+            logger.info("✓ Geocoding fixes complete")
+
+            # Determine which bedroom count to map based on query
+            # Query 1 (3-4br) -> map 3+ bedrooms
+            # Query 2 (2+br) -> map 2 bedrooms
+            bedroom_count = 2  # default
+            if selected_query['name'] == "3-4br Belgrano/Palermo/Barrio Norte":
+                bedroom_count = 3
+            elif selected_query['name'] == "2+br or 3+amb Belgrano/Palermo/Barrio Norte":
+                bedroom_count = 2
+
+            # Then generate updated map
+            logger.info(f"\n=== Generating property map for {bedroom_count}-bedroom properties ===")
+            map_script = os.path.join(parent_dir, 'analysis', 'map_properties.py')
+            subprocess.run([sys.executable, map_script, str(bedroom_count), "--cache-only"], check=True)
+            logger.info("✓ Map generation complete")
+        except Exception as e:
+            logger.error(f"Post-scraping analysis failed: {e}")
 
 if __name__ == "__main__":
     main()
