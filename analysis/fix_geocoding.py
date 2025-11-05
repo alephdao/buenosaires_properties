@@ -8,6 +8,8 @@ import re
 from geopy.geocoders import Nominatim
 from geopy.extra.rate_limiter import RateLimiter
 import time
+from concurrent.futures import ThreadPoolExecutor, as_completed
+import threading
 
 CACHE_FILE = '/Users/philipgalebach/coding-projects/buenosaires_properties/analysis/geocache.json'
 
@@ -51,7 +53,34 @@ def save_geocache(cache):
     with open(CACHE_FILE, 'w') as f:
         json.dump(cache, f, indent=2)
 
-def main():
+def geocode_single_address(args):
+    """Geocode a single address (for parallel processing)"""
+    i, total, original_addr, geolocator = args
+
+    cleaned_addr = clean_address(original_addr)
+
+    # Skip if cleaning didn't change anything
+    if cleaned_addr == original_addr:
+        return (original_addr, None, f"{i+1}/{total}: Skipping (no change): {original_addr[:60]}")
+
+    try:
+        full_address = f"{cleaned_addr}, Buenos Aires, Argentina"
+        location = geolocator.geocode(full_address)
+
+        if location:
+            result = {
+                'latitude': location.latitude,
+                'longitude': location.longitude
+            }
+            msg = f"✓ {i+1}/{total}: {original_addr[:50]}\n   Cleaned to: {cleaned_addr[:50]}"
+            return (original_addr, result, msg)
+        else:
+            return (original_addr, None, f"✗ {i+1}/{total}: Still failed: {original_addr[:60]}")
+
+    except Exception as e:
+        return (original_addr, None, f"✗ {i+1}/{total}: Error: {str(e)[:50]}")
+
+def main(workers=8):
     print("=== Fixing Failed Geocoding ===\n")
 
     # Load cache
@@ -60,53 +89,57 @@ def main():
 
     # Find failed addresses
     failed = [(addr, loc) for addr, loc in cache.items() if loc.get('latitude') is None]
-    print(f"Found {len(failed)} failed addresses to retry\n")
+    print(f"Found {len(failed)} failed addresses to retry")
+    print(f"Using {workers} parallel workers\n")
 
     if not failed:
         print("No failed addresses to fix!")
         return
 
-    # Setup geocoder
-    geolocator = Nominatim(user_agent="buenosaires_properties_analyzer", timeout=10)
-    geocode = RateLimiter(geolocator.geocode, min_delay_seconds=1.5)
+    # Setup geocoders (one per worker to avoid conflicts)
+    geolocators = [
+        Nominatim(user_agent=f"buenosaires_properties_analyzer_worker{i}", timeout=10)
+        for i in range(workers)
+    ]
 
     success_count = 0
     still_failed_count = 0
+    cache_lock = threading.Lock()
 
-    for i, (original_addr, _) in enumerate(failed):
-        cleaned_addr = clean_address(original_addr)
+    # Prepare tasks
+    tasks = [
+        (i, len(failed), addr, geolocators[i % workers])
+        for i, (addr, _) in enumerate(failed)
+    ]
 
-        # Skip if cleaning didn't change anything
-        if cleaned_addr == original_addr:
-            print(f"{i+1}/{len(failed)}: Skipping (no change): {original_addr[:60]}")
-            still_failed_count += 1
-            continue
+    # Process in parallel with rate limiting per worker
+    with ThreadPoolExecutor(max_workers=workers) as executor:
+        # Submit all tasks
+        future_to_addr = {
+            executor.submit(geocode_single_address, task): task[1]
+            for task in tasks
+        }
 
-        try:
-            full_address = f"{cleaned_addr}, Buenos Aires, Argentina"
-            location = geocode(full_address)
+        # Process results as they complete
+        for future in as_completed(future_to_addr):
+            original_addr, result, msg = future.result()
+            print(msg)
 
-            if location:
-                # Update cache with new successful location
-                cache[original_addr] = {
-                    'latitude': location.latitude,
-                    'longitude': location.longitude
-                }
-                success_count += 1
-                print(f"✓ {i+1}/{len(failed)}: {original_addr[:50]}")
-                print(f"   Cleaned to: {cleaned_addr[:50]}")
+            # Update cache thread-safely
+            with cache_lock:
+                if result:
+                    cache[original_addr] = result
+                    success_count += 1
 
-                # Save every 10 successes
-                if success_count % 10 == 0:
-                    save_geocache(cache)
-                    print(f"   Saved progress ({success_count} fixed so far)")
-            else:
-                still_failed_count += 1
-                print(f"✗ {i+1}/{len(failed)}: Still failed: {original_addr[:60]}")
+                    # Save every 10 successes
+                    if success_count % 10 == 0:
+                        save_geocache(cache)
+                        print(f"   Saved progress ({success_count} fixed so far)")
+                else:
+                    still_failed_count += 1
 
-        except Exception as e:
-            still_failed_count += 1
-            print(f"✗ {i+1}/{len(failed)}: Error: {str(e)[:50]}")
+            # Rate limit: small delay between requests
+            time.sleep(0.2)  # With 8 workers, this gives ~1.6 second spacing per worker
 
     # Final save
     save_geocache(cache)

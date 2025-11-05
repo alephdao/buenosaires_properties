@@ -350,9 +350,17 @@ def main():
                 bedroom_count = 2
 
             # Then generate updated map
+            # Only use cache if we didn't scrape any new properties
+            cache_flag = "--cache-only" if total_listings == 0 else ""
             logger.info(f"\n=== Generating property map for {bedroom_count}-bedroom properties ===")
+            logger.info(f"Scraped {total_listings} new properties - will geocode new addresses" if total_listings > 0 else "No new properties - using cache only")
             map_script = os.path.join(parent_dir, 'analysis', 'map_properties.py')
-            subprocess.run([sys.executable, map_script, str(bedroom_count), f"--query-id={query_id}", "--cache-only"], check=True)
+
+            if cache_flag:
+                subprocess.run([sys.executable, map_script, str(bedroom_count), f"--query-id={query_id}", cache_flag], check=True)
+            else:
+                subprocess.run([sys.executable, map_script, str(bedroom_count), f"--query-id={query_id}"], check=True)
+
             logger.info("✓ Map generation complete")
         except Exception as e:
             logger.error(f"Post-scraping analysis failed: {e}")

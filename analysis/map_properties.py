@@ -12,6 +12,8 @@ from geopy.extra.rate_limiter import RateLimiter
 import time
 import json
 import os
+import threading
+from concurrent.futures import ThreadPoolExecutor, as_completed
 from pathlib import Path
 
 # Configuration
@@ -31,7 +33,33 @@ def save_geocache(cache):
     with open(CACHE_FILE, 'w') as f:
         json.dump(cache, f, indent=2)
 
-def geocode_addresses(df, use_cache_only=False):
+def geocode_single_address_parallel(args):
+    """Geocode a single address (for parallel processing)"""
+    idx, total, address, geolocator = args
+
+    try:
+        # Add "Buenos Aires, Argentina" to improve accuracy
+        full_address = f"{address}, Buenos Aires, Argentina"
+        location = geolocator.geocode(full_address)
+
+        if location:
+            result = {
+                'latitude': location.latitude,
+                'longitude': location.longitude
+            }
+            msg = f"✓ {idx+1}/{total}: {address[:40]}"
+            return (address, result, msg)
+        else:
+            result = {'latitude': None, 'longitude': None}
+            msg = f"✗ {idx+1}/{total}: {address[:40]} - Not found"
+            return (address, result, msg)
+
+    except Exception as e:
+        result = {'latitude': None, 'longitude': None}
+        msg = f"✗ {idx+1}/{total}: {address[:40]} - Error: {str(e)[:50]}"
+        return (address, result, msg)
+
+def geocode_addresses(df, use_cache_only=False, workers=8):
     """Geocode addresses to get latitude/longitude with caching"""
     cache = load_geocache()
     print(f"Loaded {len(cache)} cached addresses")
@@ -50,63 +78,72 @@ def geocode_addresses(df, use_cache_only=False):
         df['longitude'] = [loc['longitude'] for loc in locations]
         return df
 
-    print(f"Geocoding {len(df)} addresses...")
-
-    geolocator = Nominatim(user_agent="buenosaires_properties_analyzer", timeout=10)
-    geocode = RateLimiter(geolocator.geocode, min_delay_seconds=1.5)
-
-    locations = []
-    cache_updated = False
+    # Find addresses that need geocoding
+    addresses_to_geocode = []
+    cached_locations = {}
 
     for idx, row in df.iterrows():
         address = row['address'].strip()
-
-        # Check cache first
         if address in cache:
-            locations.append(cache[address])
-            if idx % 50 == 0:
-                print(f"✓ {idx+1}/{len(df)}: {address[:40]} (cached)")
-            continue
+            cached_locations[address] = cache[address]
+        else:
+            addresses_to_geocode.append((idx, address))
 
-        try:
-            # Add "Buenos Aires, Argentina" to improve accuracy
-            full_address = f"{address}, Buenos Aires, Argentina"
-            location = geocode(full_address)
+    print(f"Found {len(cached_locations)} addresses in cache")
+    print(f"Geocoding {len(addresses_to_geocode)} new addresses with {workers} parallel workers...")
 
-            if location:
-                result = {
-                    'latitude': location.latitude,
-                    'longitude': location.longitude
-                }
-                locations.append(result)
+    if not addresses_to_geocode:
+        # All addresses cached
+        df['latitude'] = df['address'].apply(lambda a: cached_locations.get(a.strip(), {}).get('latitude'))
+        df['longitude'] = df['address'].apply(lambda a: cached_locations.get(a.strip(), {}).get('longitude'))
+        return df
+
+    # Setup geocoders (one per worker)
+    geolocators = [
+        Nominatim(user_agent=f"buenosaires_properties_analyzer_worker{i}", timeout=10)
+        for i in range(workers)
+    ]
+
+    cache_lock = threading.Lock()
+    cache_updated = False
+
+    # Prepare tasks
+    tasks = [
+        (idx, len(addresses_to_geocode), addr, geolocators[i % workers])
+        for i, (idx, addr) in enumerate(addresses_to_geocode)
+    ]
+
+    # Process in parallel
+    with ThreadPoolExecutor(max_workers=workers) as executor:
+        future_to_addr = {
+            executor.submit(geocode_single_address_parallel, task): task[2]
+            for task in tasks
+        }
+
+        for future in as_completed(future_to_addr):
+            address, result, msg = future.result()
+            print(msg)
+
+            # Update cache thread-safely
+            with cache_lock:
                 cache[address] = result
                 cache_updated = True
-                print(f"✓ {idx+1}/{len(df)}: {address[:40]}")
-            else:
-                result = {'latitude': None, 'longitude': None}
-                locations.append(result)
-                cache[address] = result
-                cache_updated = True
-                print(f"✗ {idx+1}/{len(df)}: {address[:40]} - Not found")
 
-            # Save cache every 10 successful geocodes
-            if cache_updated and len(cache) % 10 == 0:
-                save_geocache(cache)
+                # Save every 20 successes
+                if len(cache) % 20 == 0:
+                    save_geocache(cache)
 
-        except Exception as e:
-            print(f"✗ {idx+1}/{len(df)}: {address[:40]} - Error: {str(e)[:50]}")
-            result = {'latitude': None, 'longitude': None}
-            locations.append(result)
-            cache[address] = result
-            cache_updated = True
+            # Small delay to respect rate limits
+            time.sleep(0.2)
 
     # Final save
     if cache_updated:
         save_geocache(cache)
         print(f"Saved {len(cache)} addresses to cache")
 
-    df['latitude'] = [loc['latitude'] for loc in locations]
-    df['longitude'] = [loc['longitude'] for loc in locations]
+    # Map all addresses to their geocoded locations
+    df['latitude'] = df['address'].apply(lambda a: cache.get(a.strip(), {}).get('latitude'))
+    df['longitude'] = df['address'].apply(lambda a: cache.get(a.strip(), {}).get('longitude'))
 
     return df
 
