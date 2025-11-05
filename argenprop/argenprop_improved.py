@@ -352,7 +352,7 @@ def main():
             # Then generate updated map
             logger.info(f"\n=== Generating property map for {bedroom_count}-bedroom properties ===")
             map_script = os.path.join(parent_dir, 'analysis', 'map_properties.py')
-            subprocess.run([sys.executable, map_script, str(bedroom_count), "--cache-only"], check=True)
+            subprocess.run([sys.executable, map_script, str(bedroom_count), f"--query-id={query_id}", "--cache-only"], check=True)
             logger.info("✓ Map generation complete")
         except Exception as e:
             logger.error(f"Post-scraping analysis failed: {e}")

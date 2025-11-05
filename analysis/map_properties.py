@@ -128,7 +128,7 @@ def format_price(price):
     else:
         return f"${price:.0f}"
 
-def create_map(df, bedrooms):
+def create_map(df, bedrooms, query_id=None):
     """Create folium map with properties"""
     # Filter out properties without coordinates
     df_mapped = df.dropna(subset=['latitude', 'longitude', 'price_dollars'])
@@ -211,24 +211,36 @@ def create_map(df, bedrooms):
     '''
     m.get_root().html.add_child(folium.Element(legend_html))
 
-    # Save map
-    output_file = f'{OUTPUT_DIR}/buenos_aires_{bedrooms}bed_map.html'
+    # Save map with query ID if provided
+    if query_id:
+        output_file = f'{OUTPUT_DIR}/buenos_aires_{bedrooms}bed_query{query_id}_map.html'
+    else:
+        output_file = f'{OUTPUT_DIR}/buenos_aires_{bedrooms}bed_map.html'
     m.save(output_file)
     print(f"\n✓ Map saved to: {output_file}")
 
     return df_mapped, output_file
 
-def main(bedrooms=2, use_cache_only=False):
+def main(bedrooms=2, use_cache_only=False, query_id=None):
     """Main function to create property map"""
     # Load data from database
-    print(f"Loading {bedrooms}-bedroom properties from database...")
+    print(f"Loading {bedrooms}+ bedroom properties from database...")
     conn = sqlite3.connect(DB_PATH)
 
-    query = """
-    SELECT address, price_dollars, size, bedrooms, bathrooms, listing_url, archived_path
-    FROM properties
-    WHERE bedrooms = ? AND price_dollars IS NOT NULL
-    """
+    # For 3+ bedrooms, get all properties with >= 3 bedrooms
+    # For 2 bedrooms, get exactly 2 bedrooms
+    if bedrooms >= 3:
+        query = """
+        SELECT address, price_dollars, size, bedrooms, bathrooms, listing_url, archived_path
+        FROM properties
+        WHERE bedrooms >= ? AND price_dollars IS NOT NULL
+        """
+    else:
+        query = """
+        SELECT address, price_dollars, size, bedrooms, bathrooms, listing_url, archived_path
+        FROM properties
+        WHERE bedrooms = ? AND price_dollars IS NOT NULL
+        """
 
     df = pd.read_sql_query(query, conn, params=(bedrooms,))
     conn.close()
@@ -243,7 +255,7 @@ def main(bedrooms=2, use_cache_only=False):
     df = geocode_addresses(df, use_cache_only=use_cache_only)
 
     # Create map
-    df_mapped, output_file = create_map(df, bedrooms)
+    df_mapped, output_file = create_map(df, bedrooms, query_id)
 
     # Print summary statistics
     print("\n=== Summary Statistics ===")
@@ -257,13 +269,20 @@ def main(bedrooms=2, use_cache_only=False):
 if __name__ == "__main__":
     import sys
 
-    # Accept bedroom count as command line argument
+    # Accept bedroom count and query ID as command line arguments
     bedrooms = int(sys.argv[1]) if len(sys.argv) > 1 else 2
     use_cache_only = '--cache-only' in sys.argv
+
+    # Extract query_id if provided (format: --query-id=N)
+    query_id = None
+    for arg in sys.argv:
+        if arg.startswith('--query-id='):
+            query_id = int(arg.split('=')[1])
+            break
 
     print(f"=== Buenos Aires Property Mapper ===")
     print(f"Analyzing {bedrooms}-bedroom properties\n")
 
-    output = main(bedrooms, use_cache_only=use_cache_only)
+    output = main(bedrooms, use_cache_only=use_cache_only, query_id=query_id)
 
     print(f"\n✅ Done! Open the map at: {output}")
