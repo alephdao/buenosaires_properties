@@ -133,3 +133,6 @@ argenprop_progress.json
 *.tmp
 *.temp
 *~
+
+# Archived property listings (can be large)
+buckets/

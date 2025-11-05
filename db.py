@@ -349,6 +349,23 @@ def get_stats() -> Dict:
     }
 
 
+def update_archived_path(property_id: int, archived_path: str):
+    """Update the archived_path for a property."""
+    conn = get_connection()
+    cursor = conn.cursor()
+
+    cursor.execute('''
+        UPDATE properties
+        SET archived_path = ?
+        WHERE id = ?
+    ''', (archived_path, property_id))
+
+    conn.commit()
+    conn.close()
+
+    logger.info(f"Updated archived path for property {property_id}: {archived_path}")
+
+
 if __name__ == '__main__':
     # Initialize database when run directly
     logging.basicConfig(level=logging.INFO)

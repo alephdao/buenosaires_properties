@@ -119,11 +119,11 @@ def get_price_color(price, p33, p67):
         return '#dc3545'  # Red (expensive)
 
 def format_price(price):
-    """Format price for display (e.g., 1500000 -> $1.5m)"""
+    """Format price for display (e.g., 1500 -> $1.5k, 1500000 -> $1.5m)"""
     if price >= 1_000_000:
         return f"${price/1_000_000:.1f}m"
     elif price >= 1_000:
-        return f"${price/1_000:.0f}k"
+        return f"${price/1_000:.1f}k"
     else:
         return f"${price:.0f}"
 
@@ -155,8 +155,15 @@ def create_map(df, bedrooms):
     for idx, row in df_mapped.iterrows():
         color = get_price_color(row['price_dollars'], p33, p67)
 
-        # Format popup text
-        listing_link = f'<p style="margin: 5px 0;"><a href="{row["listing_url"]}" target="_blank">Link</a></p>' if pd.notna(row['listing_url']) else ''
+        # Format popup text with both live and archived links
+        links_html = ''
+        if pd.notna(row['listing_url']):
+            links_html += f'<p style="margin: 5px 0;"><a href="{row["listing_url"]}" target="_blank">🔗 Live Link</a></p>'
+
+        if pd.notna(row.get('archived_path')):
+            # Convert relative path to absolute file:// URL
+            archived_full_path = os.path.abspath(os.path.join(OUTPUT_DIR, '..', row['archived_path']))
+            links_html += f'<p style="margin: 5px 0;"><a href="file://{archived_full_path}" target="_blank">📁 Archived Link</a></p>'
 
         popup_html = f"""
         <div style="font-family: Arial; min-width: 200px;">
@@ -164,7 +171,7 @@ def create_map(df, bedrooms):
             <p style="margin: 5px 0;"><b>{row['address']}</b></p>
             <p style="margin: 5px 0;">{int(row['size']) if pd.notna(row['size']) else 'N/A'} m² cubie.</p>
             <p style="margin: 5px 0;">{int(row['bedrooms'])} dorm.</p>
-            {listing_link}
+            {links_html}
         </div>
         """
 
@@ -217,16 +224,13 @@ def main(bedrooms=2, use_cache_only=False):
     conn = sqlite3.connect(DB_PATH)
 
     query = """
-    SELECT address, price_dollars, size, bedrooms, bathrooms, listing_url
+    SELECT address, price_dollars, size, bedrooms, bathrooms, listing_url, archived_path
     FROM properties
     WHERE bedrooms = ? AND price_dollars IS NOT NULL
     """
 
     df = pd.read_sql_query(query, conn, params=(bedrooms,))
     conn.close()
-
-    # Convert price_dollars from thousands to actual dollars
-    df['price_dollars'] = df['price_dollars'] * 1000
 
     print(f"Found {len(df)} properties")
 

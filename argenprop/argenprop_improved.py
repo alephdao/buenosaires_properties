@@ -19,6 +19,7 @@ import yaml
 # Add parent directory to path for db import
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 import db
+import archive
 
 # Set up logging
 logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(levelname)s - %(message)s')
@@ -268,6 +269,19 @@ def main():
                         is_new, prop_id = db.upsert_property(listing_data, query_id)
                         if is_new:
                             new_count += 1
+                            # Archive new properties only
+                            logger.info(f"Archiving new property {prop_id}: {listing_data['address']}")
+                            archived_path = archive.archive_property_page(
+                                property_id=prop_id,
+                                address=listing_data['address'],
+                                listing_url=listing_data['listing_url'],
+                                date_scraped=listing_data.get('timestamp')
+                            )
+                            if archived_path:
+                                db.update_archived_path(prop_id, archived_path)
+                                logger.info(f"✓ Archived to {archived_path}")
+                            else:
+                                logger.warning(f"✗ Failed to archive property {prop_id}")
                         else:
                             updated_count += 1
 
